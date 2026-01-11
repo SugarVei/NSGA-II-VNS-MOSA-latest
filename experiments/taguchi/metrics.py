@@ -44,7 +44,7 @@ def normalize_objectives(points: np.ndarray,
     return normalized
 
 
-def get_hv_ref_point(pf_ref_norm: np.ndarray, margin: float = 0.1) -> np.ndarray:
+def get_hv_ref_point(pf_ref_norm: np.ndarray, margin: float = 0.5) -> np.ndarray:
     """
     计算 HV 参考点
     
@@ -52,13 +52,13 @@ def get_hv_ref_point(pf_ref_norm: np.ndarray, margin: float = 0.1) -> np.ndarray
     
     Args:
         pf_ref_norm: 归一化后的参考前沿 (n, 3)
-        margin: 边距比例，默认 0.1 (即 10%)
+        margin: 边距比例，默认 0.5 (即 50%) - 增大容差以防止 HV=0
         
     Returns:
         参考点 (3,)
     """
     if len(pf_ref_norm) == 0:
-        return np.array([1.1, 1.1, 1.1])
+        return np.array([1.5, 1.5, 1.5])
     
     max_vals = np.max(pf_ref_norm, axis=0)
     ref_point = max_vals * (1.0 + margin)
@@ -126,8 +126,14 @@ def compute_hv(A_norm: np.ndarray, ref_point: np.ndarray) -> float:
     valid_mask = np.all(A_norm < ref_point, axis=1)
     A_valid = A_norm[valid_mask]
     
+    # 兜底方案：如果所有解都超出参考点，自动扩展参考点
+    # 这确保了 HV 不会因为解质量差而直接返回 0
     if len(A_valid) == 0:
-        return 0.0
+        # 使用当前解集的最大值 * 1.1 作为新的参考点
+        adaptive_ref_point = np.max(A_norm, axis=0) * 1.1
+        A_valid = A_norm  # 使用所有解
+        indicator = HV(ref_point=adaptive_ref_point)
+        return indicator.do(A_valid)
     
     indicator = HV(ref_point=ref_point)
     return indicator.do(A_valid)
@@ -163,13 +169,13 @@ def compute_all_metrics(A: np.ndarray,
 
 
 def get_normalization_info(pf_ref: np.ndarray, 
-                           hv_margin: float = 0.1) -> Dict[str, Any]:
+                           hv_margin: float = 0.5) -> Dict[str, Any]:
     """
     获取完整的归一化信息
     
     Args:
         pf_ref: 参考前沿 (n, 3)
-        hv_margin: HV 参考点边距
+        hv_margin: HV 参考点边距，默认 0.5 (增大以防止 HV=0)
         
     Returns:
         包含 f_min, f_max, hv_ref_point 的字典
@@ -178,7 +184,7 @@ def get_normalization_info(pf_ref: np.ndarray,
         return {
             'f_min': [0.0, 0.0, 0.0],
             'f_max': [1.0, 1.0, 1.0],
-            'hv_ref_point': [1.1, 1.1, 1.1],
+            'hv_ref_point': [1.5, 1.5, 1.5],
         }
     
     f_min = np.min(pf_ref, axis=0)

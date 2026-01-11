@@ -589,6 +589,7 @@ class CaseConfigDialog(QDialog):
             machines_per_stage=self.case.machines_per_stage,
             n_speed_levels=3,
             n_skill_levels=3,
+            workers_available=self.case.workers_available,
             seed=seed
         )
         

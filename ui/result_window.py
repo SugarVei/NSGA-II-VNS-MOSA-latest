@@ -152,15 +152,9 @@ class OptimizationWorker(QThread):
             decoder = Decoder(self.problem)
             vns = VNS(
                 problem=self.problem,
-                max_iterations=10,  # VNS-MOSA内部迭代
-                neighbors_per_structure=3,
-                weights=self.params['weights'],
-                initial_temp=self.params['initial_temp'],
-                cooling_rate=self.params['cooling_rate'],
-                final_temp=1.0,
+                max_iters=10,  # VNS-MOSA内部迭代
                 seed=self.params.get('seed', 42)
             )
-            vns.set_normalization_params(pareto_nsga2)
 
             
             # MOSA 参数
@@ -182,7 +176,7 @@ class OptimizationWorker(QThread):
                 self.log.emit(f"  ├─ VNS: 邻域搜索...")
                 self.mosa_progress.emit(prog, 100, f"VNS {i+1}/{n_pareto}")
                 
-                vns_solution = vns.search(current_solution)
+                vns_solution = vns.run(current_solution)
                 
                 # 确保有目标值
                 if vns_solution.objectives is None:

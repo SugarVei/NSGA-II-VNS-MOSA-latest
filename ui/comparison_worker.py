@@ -91,12 +91,12 @@ def run_algorithm_task(args):
                          n_generations=params.get('n_generations', 500), seed=alg_seed)
             pf = alg.run()
         elif alg_name == 'MOSA':
-            # 标准独立的 MOSA，不传递 initial_archive 则自随机开始
+            # 标准独立的 MOSA，增加迭代次数以提高解质量
             mosa = MOSA(problem, initial_temp=params.get('initial_temp', 100.0), 
-                        max_iterations=params.get('max_iterations', 200), seed=alg_seed)
+                        max_iterations=params.get('max_iterations', 500), seed=alg_seed)
             pf = mosa.run()
         elif alg_name == 'MOEA/D':
-            alg = MOEAD(problem, pop_size=params.get('pop_size', 200), seed=alg_seed)
+            alg = MOEAD(problem, pop_size=params.get('pop_size', 200), n_generations=params.get('n_generations', 500), seed=alg_seed)
             pf = alg.run()
         elif alg_name == 'SPEA2':
             alg = SPEA2(problem, pop_size=params.get('pop_size', 200), seed=alg_seed)
@@ -184,7 +184,8 @@ class ComparisonWorker(QThread):
                  cases_config: List[CaseConfig],
                  params_dict: Dict[str, Dict[str, Any]],
                  runs: int = 30,
-                 base_seed: int = 42):
+                 base_seed: int = 42,
+                 weights: tuple = (0.4, 0.3, 0.3)):
         """
         初始化工作线程
         
@@ -194,6 +195,7 @@ class ComparisonWorker(QThread):
             params_dict: 全局算法参数字典（当算例未配置时使用）
             runs: 每个算例的重复次数
             base_seed: 基准随机种子
+            weights: 三个目标的权重 (w1, w2, w3)，用于计算综合值
         """
         super().__init__()
         self.selected_algorithms = selected_algorithms
@@ -201,6 +203,7 @@ class ComparisonWorker(QThread):
         self.params_dict = params_dict
         self.runs = runs
         self.base_seed = base_seed
+        self.weights = weights  # 目标权重
         self._is_cancelled = False
         
         # 时间追踪
@@ -340,8 +343,8 @@ class ComparisonWorker(QThread):
             return alg.run()
         
         elif alg_name == 'MOSA':
-            # 标准独立的 MOSA 算法
-            max_iter = params.get('max_iterations', params.get('markov_chain_length', 200))  # 对比算法减少迭代
+            # 标准独立的 MOSA 算法 - 增加迭代次数以提高解质量 (解决 HV=0 问题)
+            max_iter = params.get('max_iterations', params.get('markov_chain_length', 500))
             mosa = MOSA(
                 problem,
                 initial_temp=params.get('initial_temp', 100.0),
@@ -356,7 +359,7 @@ class ComparisonWorker(QThread):
             alg = MOEAD(
                 problem,
                 pop_size=params.get('pop_size', 200),
-                n_generations=params.get('n_generations', 200),     # 对比算法减少迭代
+                n_generations=params.get('n_generations', 500),     # 增加代数以提高解质量 (解决 HV=0 问题)
                 neighborhood_size=params.get('neighborhood_size', 40),
                 crossover_prob=params.get('crossover_prob', 0.95),
                 mutation_prob=params.get('mutation_prob', 0.15),
@@ -483,9 +486,17 @@ class ComparisonWorker(QThread):
             current_completed = 0
             
             # 使用进程池执行任务
-            with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+            # Windows 限制: ProcessPoolExecutor 的 max_workers 不能超过 61
+            max_workers = min(multiprocessing.cpu_count(), 61)
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 # 提交所有任务
                 future_to_task = {executor.submit(run_algorithm_task, arg): arg for arg in task_args}
+                
+                # 任务提交完成后立即发送进度通知
+                self.log.emit(f"✅ 所有 {total_tasks} 个任务已提交到进程池，正在等待结果...")
+                self.log.emit(f"⏳ 使用 {max_workers} 个并行进程执行任务")
+                self.log.emit(f"💡 提示：单个 NSGA2-VNS-MOSA 任务 (500代) 可能需要数分钟，请耐心等待...")
+                self.progress.emit(0, total_tasks, f"已提交 {total_tasks} 个任务，等待第一个结果...")
                 
                 for future in as_completed(future_to_task):
                     if self._is_cancelled:
@@ -574,24 +585,29 @@ class ComparisonWorker(QThread):
                 hv_ref_point = np.array(norm_info['hv_ref_point'])
                 
                 results[case_no] = {}
+                weights_arr = np.array(self.weights)  # 转换为numpy数组用于计算
                 for alg_name in self.selected_algorithms:
-                    igd_values, hv_values, gd_values = [], [], []
+                    igd_values, hv_values, gd_values, composite_values = [], [], [], []
                     for obj_array in case_all_objectives[case_no][alg_name]:
                         if len(obj_array) > 0:
                             m = compute_all_metrics(obj_array, pf_ref, f_min, f_max, hv_ref_point)
                             igd_values.append(m['igd'])
                             hv_values.append(m['hv'])
                             gd_values.append(m['gd'])
+                            # 计算综合值：每个解的加权和，取最小值作为本次运行的代表值
+                            composite_per_solution = obj_array @ weights_arr
+                            composite_values.append(np.min(composite_per_solution))
                     
                     if igd_values:
                         results[case_no][alg_name] = {
                             'igd_mean': np.mean(igd_values), 'igd_std': np.std(igd_values, ddof=1) if len(igd_values) > 1 else 0.0,
                             'hv_mean': np.mean(hv_values), 'hv_std': np.std(hv_values, ddof=1) if len(hv_values) > 1 else 0.0,
                             'gd_mean': np.mean(gd_values), 'gd_std': np.std(gd_values, ddof=1) if len(gd_values) > 1 else 0.0,
+                            'composite_mean': np.mean(composite_values), 'composite_std': np.std(composite_values, ddof=1) if len(composite_values) > 1 else 0.0,
                             'n_valid_runs': len(igd_values),
                         }
                     else:
-                        results[case_no][alg_name] = {'igd_mean': float('inf'), 'hv_mean': 0.0, 'gd_mean': float('inf'), 'n_valid_runs': 0}
+                        results[case_no][alg_name] = {'igd_mean': float('inf'), 'hv_mean': 0.0, 'gd_mean': float('inf'), 'composite_mean': float('inf'), 'composite_std': 0.0, 'n_valid_runs': 0}
             
             self.log.emit("\n=== 多进程加速试验全部完成 ===")
             self.finished_result.emit(results)

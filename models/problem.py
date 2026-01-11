@@ -103,6 +103,7 @@ class SchedulingProblem:
                         machines_per_stage: Optional[List[int]] = None,
                         n_speed_levels: int = 3,
                         n_skill_levels: int = 3,
+                        workers_available: Optional[List[int]] = None,
                         seed: Optional[int] = None) -> 'SchedulingProblem':
         """
         生成随机但逻辑一致的调度问题数据
@@ -185,17 +186,20 @@ class SchedulingProblem:
         # 技能等级可操作的最大速度: 等级i可操作速度0~i
         skill_compatibility = np.array([i for i in range(n_skill_levels)])
         
-        # 各技能等级可用工人数
-        workers_available = np.array([
-            np.random.randint(4, 8),   # 低技能工人: 4-7人
-            np.random.randint(3, 6),   # 中技能工人: 3-5人
-            np.random.randint(2, 4)    # 高技能工人: 2-3人
-        ])
-        if n_skill_levels > 3:
-            extra_workers = [np.random.randint(1, 3) for _ in range(n_skill_levels - 3)]
-            workers_available = np.concatenate([workers_available, extra_workers])
-        elif n_skill_levels < 3:
-            workers_available = workers_available[:n_skill_levels]
+        # 各技能等级可用工人数（优先使用传入值）
+        if workers_available is not None:
+            workers_available_arr = np.array(workers_available)
+        else:
+            workers_available_arr = np.array([
+                np.random.randint(4, 8),   # 低技能工人: 4-7人
+                np.random.randint(3, 6),   # 中技能工人: 3-5人
+                np.random.randint(2, 4)    # 高技能工人: 2-3人
+            ])
+            if n_skill_levels > 3:
+                extra_workers = [np.random.randint(1, 3) for _ in range(n_skill_levels - 3)]
+                workers_available_arr = np.concatenate([workers_available_arr, extra_workers])
+            elif n_skill_levels < 3:
+                workers_available_arr = workers_available_arr[:n_skill_levels]
         
         return cls(
             n_jobs=n_jobs,
@@ -214,7 +218,7 @@ class SchedulingProblem:
             energy_rate=processing_power,  # 兼容旧代码
             skill_wages=skill_wages,
             skill_compatibility=skill_compatibility,
-            workers_available=workers_available
+            workers_available=workers_available_arr
         )
     
     def get_processing_time(self, job: int, stage: int, machine: int, speed: int) -> float:

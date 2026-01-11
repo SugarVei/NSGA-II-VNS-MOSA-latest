@@ -395,7 +395,10 @@ class AlgorithmComparisonWindow(QDialog):
         
         # ===== 运行参数 =====
         run_group = QGroupBox("运行参数")
-        run_layout = QHBoxLayout(run_group)
+        run_group_layout = QVBoxLayout(run_group)
+        
+        # 第一行：基础运行参数
+        run_layout = QHBoxLayout()
         
         run_layout.addWidget(QLabel("每算例重复次数:"))
         self.runs_spin = QSpinBox()
@@ -422,7 +425,45 @@ class AlgorithmComparisonWindow(QDialog):
         self.cancel_btn.clicked.connect(self.cancel_comparison)
         run_layout.addWidget(self.cancel_btn)
         
+        run_group_layout.addLayout(run_layout)
+        
+        # 第二行：目标权重参数
+        weight_layout = QHBoxLayout()
+        
+        weight_layout.addWidget(QLabel("目标权重（用于计算综合值）:"))
+        
+        weight_layout.addWidget(QLabel("F1(完工时间):"))
+        self.w1_spin = QDoubleSpinBox()
+        self.w1_spin.setRange(0.0, 1.0)
+        self.w1_spin.setDecimals(2)
+        self.w1_spin.setSingleStep(0.1)
+        self.w1_spin.setValue(0.4)
+        self.w1_spin.setFixedWidth(80)
+        weight_layout.addWidget(self.w1_spin)
+        
+        weight_layout.addWidget(QLabel("F2(能耗):"))
+        self.w2_spin = QDoubleSpinBox()
+        self.w2_spin.setRange(0.0, 1.0)
+        self.w2_spin.setDecimals(2)
+        self.w2_spin.setSingleStep(0.1)
+        self.w2_spin.setValue(0.3)
+        self.w2_spin.setFixedWidth(80)
+        weight_layout.addWidget(self.w2_spin)
+        
+        weight_layout.addWidget(QLabel("F3(人工成本):"))
+        self.w3_spin = QDoubleSpinBox()
+        self.w3_spin.setRange(0.0, 1.0)
+        self.w3_spin.setDecimals(2)
+        self.w3_spin.setSingleStep(0.1)
+        self.w3_spin.setValue(0.3)
+        self.w3_spin.setFixedWidth(80)
+        weight_layout.addWidget(self.w3_spin)
+        
+        weight_layout.addStretch()
+        run_group_layout.addLayout(weight_layout)
+        
         main_layout.addWidget(run_group)
+
         
         # ===== 进度区 =====
         progress_group = QGroupBox("运行进度")
@@ -494,6 +535,11 @@ class AlgorithmComparisonWindow(QDialog):
         # GD Tab
         self.gd_table = QTableWidget()
         self.result_tabs.addTab(self.gd_table, "GD (↓越小越好)")
+        
+        # Composite Tab (综合值)
+        self.composite_table = QTableWidget()
+        self.result_tabs.addTab(self.composite_table, "综合值 (↓越小越好)")
+
         
         result_layout.addWidget(self.result_tabs)
         
@@ -606,7 +652,8 @@ class AlgorithmComparisonWindow(QDialog):
             cases_config=self.cases,
             params_dict=self.params_dict,
             runs=runs,
-            base_seed=seed
+            base_seed=seed,
+            weights=(self.w1_spin.value(), self.w2_spin.value(), self.w3_spin.value())
         )
         
         self.worker.progress.connect(self.on_progress)
@@ -705,6 +752,7 @@ class AlgorithmComparisonWindow(QDialog):
             (self.igd_table, 'igd', True),
             (self.hv_table, 'hv', False),
             (self.gd_table, 'gd', True),
+            (self.composite_table, 'composite', True),
         ]:
             table.clear()
             table.setRowCount(len(selected_algs))
@@ -812,7 +860,7 @@ class AlgorithmComparisonWindow(QDialog):
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     # 写入表头
-                    f.write("Case_No,Problem_Scale,Algorithm,IGD_Mean,IGD_Std,HV_Mean,HV_Std,GD_Mean,GD_Std,Valid_Runs\n")
+                    f.write("Case_No,Problem_Scale,Algorithm,IGD_Mean,IGD_Std,HV_Mean,HV_Std,GD_Mean,GD_Std,Composite_Mean,Composite_Std,Valid_Runs\n")
                     
                     for case_no in sorted(self.results.keys()):
                         # 查找对应的算例
@@ -825,6 +873,7 @@ class AlgorithmComparisonWindow(QDialog):
                                 f"{metrics.get('igd_mean', 0):.6f},{metrics.get('igd_std', 0):.6f},"
                                 f"{metrics.get('hv_mean', 0):.6f},{metrics.get('hv_std', 0):.6f},"
                                 f"{metrics.get('gd_mean', 0):.6f},{metrics.get('gd_std', 0):.6f},"
+                                f"{metrics.get('composite_mean', 0):.6f},{metrics.get('composite_std', 0):.6f},"
                                 f"{metrics.get('n_valid_runs', 0)}\n"
                             )
                 

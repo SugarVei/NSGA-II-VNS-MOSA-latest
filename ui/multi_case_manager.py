@@ -195,6 +195,14 @@ class MultiCaseManagerDialog(QDialog):
         self.reset_btn.clicked.connect(self.reset_to_default)
         toolbar.addWidget(self.reset_btn)
         
+        # 一键确认配置按钮
+        self.auto_all_btn = QPushButton("一键确认配置")
+        self.auto_all_btn.setStyleSheet(
+            "background-color: #1976D2; font-size: 14px; padding: 8px 16px;"
+        )
+        self.auto_all_btn.clicked.connect(self.auto_configure_all)
+        toolbar.addWidget(self.auto_all_btn)
+        
         toolbar.addStretch()
         
         self.count_label = QLabel("共 0 个算例")
@@ -388,6 +396,70 @@ class MultiCaseManagerDialog(QDialog):
         if reply == QMessageBox.Yes:
             self.cases = get_default_cases()
             self.refresh_table()
+    
+    def auto_configure_all(self):
+        """
+        一键确认配置：为所有未配置的算例自动生成数据
+        """
+        from models.problem import SchedulingProblem
+        from ui.case_data import get_default_algorithm_params
+        
+        unconfigured_count = sum(1 for c in self.cases if not c.is_configured)
+        
+        if unconfigured_count == 0:
+            QMessageBox.information(self, "提示", "所有算例已配置完成！")
+            return
+        
+        reply = QMessageBox.question(
+            self, "一键确认配置",
+            f"将为 {unconfigured_count} 个未配置的算例自动生成数据。\n继续吗？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # 为每个未配置的算例生成数据
+        for case in self.cases:
+            if case.is_configured:
+                continue
+            
+            # 使用与 CaseConfigDialog.generate_random_data 相同的逻辑
+            seed = case.case_no * 1000 + 42
+            problem = SchedulingProblem.generate_random(
+                n_jobs=case.n_jobs,
+                n_stages=3,
+                machines_per_stage=case.machines_per_stage,
+                n_speed_levels=3,
+                n_skill_levels=3,
+                workers_available=case.workers_available,
+                seed=seed
+            )
+            
+            # 收集问题数据
+            import numpy as np
+            max_machines = max(case.machines_per_stage)
+            
+            case.problem_data = {
+                'processing_time': problem.processing_time,
+                'setup_time': problem.setup_time,
+                'processing_power': problem.processing_power,
+                'setup_power': problem.setup_power,
+                'idle_power': problem.idle_power,
+                'transport_power': problem.transport_power,
+                'aux_power': problem.aux_power,
+                'skill_wages': problem.skill_wages,
+                'workers_available_arr': problem.workers_available,
+            }
+            case.algorithm_params = get_default_algorithm_params()
+            case.input_mode = 'auto'
+            case.is_configured = True
+        
+        self.refresh_table()
+        QMessageBox.information(
+            self, "成功",
+            f"已为 {unconfigured_count} 个算例自动生成配置数据！"
+        )
     
     def open_config_dialog(self, row: int, mode: str):
         """
