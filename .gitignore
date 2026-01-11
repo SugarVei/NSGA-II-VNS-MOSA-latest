@@ -4,8 +4,8 @@ __pycache__/
 *$py.class
 *.pyc
 
-# 运行结果目录（可由程序重新生成）
-results/
+# 运行结果目录（使用 Git LFS 管理大文件）
+# results/
 
 # 编辑器/IDE 配置
 .cursor/
